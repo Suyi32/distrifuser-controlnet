@@ -1,11 +1,13 @@
 import torch
-from diffusers import StableDiffusionPipeline, StableDiffusionXLPipeline, UNet2DConditionModel
+from diffusers import StableDiffusionPipeline, StableDiffusionXLPipeline, UNet2DConditionModel, StableDiffusionXLPipelineControlNet
 
 from .models.distri_sdxl_unet_pp import DistriUNetPP
 from .models.distri_sdxl_unet_tp import DistriUNetTP
 from .models.naive_patch_sdxl import NaivePatchUNet
+from .models.distri_sdxl_controlnet_pp import DistriControlnetPP
 from .utils import DistriConfig, PatchParallelismCommManager
 
+from copy import deepcopy
 
 class DistriSDXLPipeline:
     def __init__(self, pipeline: StableDiffusionXLPipeline, module_config: DistriConfig):
@@ -15,6 +17,7 @@ class DistriSDXLPipeline:
         self.static_inputs = None
 
         self.prepare()
+        print("DistriSDXLPipeline initialized. Prepare done.")
 
     @staticmethod
     def from_pretrained(distri_config: DistriConfig, **kwargs):
@@ -36,9 +39,25 @@ class DistriSDXLPipeline:
         else:
             raise ValueError(f"Unknown parallelism: {distri_config.parallelism}")
 
-        pipeline = StableDiffusionXLPipeline.from_pretrained(
-            pretrained_model_name_or_path, torch_dtype=torch_dtype, unet=unet, **kwargs
-        ).to(device)
+        if not kwargs.get("use_controlnet", False):
+            pipeline = StableDiffusionXLPipeline.from_pretrained(
+                pretrained_model_name_or_path, torch_dtype=torch_dtype, unet=unet, **kwargs
+            ).to(device)
+        else:
+            from diffusers import ControlNetModel
+            controlnet = ControlNetModel.from_pretrained(
+                "diffusers/controlnet-canny-sdxl-1.0",
+                torch_dtype=torch.float16
+            )
+            controlnet.to(distri_config.device)
+
+            if distri_config.parallelism == "patch":
+                controlnet = DistriControlnetPP(controlnet, distri_config)
+
+            pipeline = StableDiffusionXLPipelineControlNet.from_pretrained(
+                pretrained_model_name_or_path, torch_dtype=torch_dtype, unet=unet, **kwargs
+            ).to(device)
+            pipeline.enable_controlnet( controlnet )
         return DistriSDXLPipeline(pipeline, distri_config)
 
     def set_progress_bar_config(self, **kwargs):
@@ -128,8 +147,33 @@ class DistriSDXLPipeline:
         static_inputs["encoder_hidden_states"] = prompt_embeds
         static_inputs["added_cond_kwargs"] = added_cond_kwargs
 
+        # static_inputs["down_block_additional_residuals"] = down_block_res_samples
+        # create a zero tensor as a placeholder on the same device and torch.float16 with the same shape: (2, 1280, 32, 32)
+        static_inputs["mid_block_additional_residual"] = torch.zeros([2, 1280, 32, 32], device=device, dtype=torch.float16)
+        
+        dummy_down_block_additional_residuals = []
+        dummy_down_block_additional_residuals.append(torch.zeros([2, 320, 128, 128], device=device, dtype=torch.float16))
+        dummy_down_block_additional_residuals.append(torch.zeros([2, 320, 128, 128], device=device, dtype=torch.float16))
+        dummy_down_block_additional_residuals.append(torch.zeros([2, 320, 128, 128], device=device, dtype=torch.float16))
+        dummy_down_block_additional_residuals.append(torch.zeros([2, 320, 64, 64], device=device, dtype=torch.float16))
+        dummy_down_block_additional_residuals.append(torch.zeros([2, 640, 64, 64], device=device, dtype=torch.float16))
+        dummy_down_block_additional_residuals.append(torch.zeros([2, 640, 64, 64], device=device, dtype=torch.float16))
+        dummy_down_block_additional_residuals.append(torch.zeros([2, 640, 32, 32], device=device, dtype=torch.float16))
+        dummy_down_block_additional_residuals.append(torch.zeros([2, 1280, 32, 32], device=device, dtype=torch.float16))
+        dummy_down_block_additional_residuals.append(torch.zeros([2, 1280, 32, 32], device=device, dtype=torch.float16))
+        assert len(dummy_down_block_additional_residuals) == 9, "dummy_down_block_additional_residuals should have 9 elements, but got {}".format(len(dummy_down_block_additional_residuals))
+        static_inputs["down_block_additional_residuals"] = dummy_down_block_additional_residuals
+
+        static_inputs_controlnet = {}
+        static_inputs_controlnet["sample"] = deepcopy(latents)
+        static_inputs_controlnet["timestep"] = deepcopy(t)
+        static_inputs_controlnet["encoder_hidden_states"] = deepcopy(prompt_embeds)
+        static_inputs_controlnet["added_cond_kwargs"] = deepcopy(added_cond_kwargs)
+        controlnet_cond = torch.empty( (2, 3, 1024, 1024), dtype=torch.float16, device=device )
+
         # Used to create communication buffer
         comm_manager = None
+        print("n_device_per_batch: ", distri_config.n_device_per_batch)
         if distri_config.n_device_per_batch > 1:
             comm_manager = PatchParallelismCommManager(distri_config)
             pipeline.unet.set_comm_manager(comm_manager)
@@ -139,8 +183,28 @@ class DistriSDXLPipeline:
             pipeline.unet(**static_inputs, return_dict=False, record=True)
             if comm_manager.numel > 0:
                 comm_manager.create_buffer()
+        
+        if distri_config.n_device_per_batch > 1:
+            comm_manager_controlnet = PatchParallelismCommManager(distri_config)
+            pipeline.controlnet.set_comm_manager(comm_manager_controlnet)
+            # Only used for creating the communication buffer
+            pipeline.controlnet.set_counter(0)
+            # pipeline.controlnet(**static_inputs, return_dict=False, record=True)
+            pipeline.controlnet(
+                static_inputs_controlnet["sample"],
+                static_inputs_controlnet["timestep"],
+                static_inputs_controlnet["encoder_hidden_states"],
+                controlnet_cond,
+                0.5,
+                False,
+                static_inputs_controlnet["added_cond_kwargs"],
+                return_dict=False
+            )
+            if comm_manager_controlnet.numel > 0:
+                comm_manager_controlnet.create_buffer()
 
         # Pre-run
+        print("Pre-run")
         pipeline.unet.set_counter(0)
         pipeline.unet(**static_inputs, return_dict=False, record=True)
 
@@ -155,6 +219,7 @@ class DistriSDXLPipeline:
                 counters = [0]
             else:
                 raise ValueError(f"Unknown parallelism: {distri_config.parallelism}")
+            print("counters: ", counters)
             for counter in counters:
                 graph = torch.cuda.CUDAGraph()
                 with torch.cuda.graph(graph):
