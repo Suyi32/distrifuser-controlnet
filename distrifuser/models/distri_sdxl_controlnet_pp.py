@@ -124,21 +124,17 @@ class DistriControlnetPP(BaseModel):  # for Patch Parallelism
             output = self.static_outputs[graph_idx]
         else:
             if distri_config.world_size == 1:
-                output = self.model(
+                down_block_res_samples, mid_block_res_sample = self.model(
                     sample,
                     timestep,
                     encoder_hidden_states,
-                    class_labels=class_labels,
-                    timestep_cond=timestep_cond,
-                    attention_mask=attention_mask,
-                    cross_attention_kwargs=cross_attention_kwargs,
+                    controlnet_cond=controlnet_cond,
+                    conditioning_scale=conditioning_scale,
+                    guess_mode=guess_mode,
                     added_cond_kwargs=added_cond_kwargs,
-                    down_block_additional_residuals=down_block_additional_residuals,
-                    mid_block_additional_residual=mid_block_additional_residual,
-                    down_intrablock_additional_residuals=down_intrablock_additional_residuals,
-                    encoder_attention_mask=encoder_attention_mask,
                     return_dict=False,
-                )[0]
+                )
+                output = None
             elif distri_config.do_classifier_free_guidance and distri_config.split_batch:
                 assert b == 2
                 batch_idx = distri_config.batch_idx()

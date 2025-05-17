@@ -8,6 +8,7 @@ from .models.distri_sdxl_controlnet_pp import DistriControlnetPP
 from .utils import DistriConfig, PatchParallelismCommManager
 
 from copy import deepcopy
+import time
 
 class DistriSDXLPipeline:
     def __init__(self, pipeline: StableDiffusionXLPipeline, module_config: DistriConfig):
@@ -26,27 +27,30 @@ class DistriSDXLPipeline:
             "pretrained_model_name_or_path", "stabilityai/stable-diffusion-xl-base-1.0"
         )
         torch_dtype = kwargs.pop("torch_dtype", torch.float16)
-        unet = UNet2DConditionModel.from_pretrained(
-            pretrained_model_name_or_path, torch_dtype=torch_dtype, subfolder="unet"
-        ).to(device)
+        # unet = UNet2DConditionModel.from_pretrained(
+        #     pretrained_model_name_or_path, torch_dtype=torch_dtype, subfolder="unet"
+        # ).to(device)
 
-        if distri_config.parallelism == "patch":
-            unet = DistriUNetPP(unet, distri_config)
-        elif distri_config.parallelism == "tensor":
-            unet = DistriUNetTP(unet, distri_config)
-        elif distri_config.parallelism == "naive_patch":
-            unet = NaivePatchUNet(unet, distri_config)
-        else:
-            raise ValueError(f"Unknown parallelism: {distri_config.parallelism}")
-
-        if not kwargs.get("use_controlnet", False):
+        # if distri_config.parallelism == "patch":
+        #     unet = DistriUNetPP(unet, distri_config)
+        # elif distri_config.parallelism == "tensor":
+        #     unet = DistriUNetTP(unet, distri_config)
+        # elif distri_config.parallelism == "naive_patch":
+        #     unet = NaivePatchUNet(unet, distri_config)
+        # else:
+        #     raise ValueError(f"Unknown parallelism: {distri_config.parallelism}")
+        
+        load_lora_time = 0.0
+        num_controlnets = kwargs.get("num_controlnets", 0)
+        if num_controlnets == 0:
             pipeline = StableDiffusionXLPipeline.from_pretrained(
-                pretrained_model_name_or_path, torch_dtype=torch_dtype, unet=unet, **kwargs
+                pretrained_model_name_or_path, torch_dtype=torch_dtype, **kwargs
             ).to(device)
         else:
             from diffusers import ControlNetModel
             controlnet = ControlNetModel.from_pretrained(
-                "diffusers/controlnet-canny-sdxl-1.0",
+                # "diffusers/controlnet-canny-sdxl-1.0",
+                "diffusers/controlnet-depth-sdxl-1.0",
                 torch_dtype=torch.float16
             )
             controlnet.to(distri_config.device)
@@ -54,11 +58,37 @@ class DistriSDXLPipeline:
             if distri_config.parallelism == "patch":
                 controlnet = DistriControlnetPP(controlnet, distri_config)
 
+            # pipeline = StableDiffusionXLPipelineControlNet.from_pretrained(
+            #     pretrained_model_name_or_path, torch_dtype=torch_dtype, unet=unet, **kwargs
+            # ).to(device)
             pipeline = StableDiffusionXLPipelineControlNet.from_pretrained(
-                pretrained_model_name_or_path, torch_dtype=torch_dtype, unet=unet, **kwargs
+                pretrained_model_name_or_path, torch_dtype=torch_dtype, **kwargs
             ).to(device)
             pipeline.enable_controlnet( controlnet )
-        return DistriSDXLPipeline(pipeline, distri_config)
+
+        load_lora_start = time.time()
+        num_loras = kwargs.get("num_loras", 0)
+        if num_loras == 1:
+            lora_model_repos = ["TheLastBen/Papercut_SDXL"]
+            for lora_id in range(num_loras):
+                pipeline.load_lora_weights(lora_model_repos[lora_id], adapter_name=lora_model_repos[lora_id])
+            pipeline.set_adapters(lora_model_repos, adapter_weights=[1.0] * len(lora_model_repos))
+            pipeline.fuse_lora(lora_scale=1.0)
+        elif num_loras == 2:
+            lora_model_repos = ["TheLastBen/William_Eggleston_Style_SDXL", "TheLastBen/Filmic"]
+            for lora_id in range(num_loras):
+                pipeline.load_lora_weights(lora_model_repos[lora_id], adapter_name=lora_model_repos[lora_id])
+            pipeline.set_adapters(lora_model_repos, adapter_weights=[1.0] * len(lora_model_repos))
+            pipeline.fuse_lora(lora_scale=1.0)
+        load_lora_end = time.time()
+        load_lora_time = load_lora_end - load_lora_start
+
+        if distri_config.parallelism == "patch":
+            pipeline.unet = DistriUNetPP(pipeline.unet, distri_config)
+        else:
+            raise ValueError(f"Unknown parallelism: {distri_config.parallelism}")
+
+        return DistriSDXLPipeline(pipeline, distri_config), load_lora_time
 
     def set_progress_bar_config(self, **kwargs):
         self.pipeline.set_progress_bar_config(**kwargs)
@@ -184,7 +214,8 @@ class DistriSDXLPipeline:
             if comm_manager.numel > 0:
                 comm_manager.create_buffer()
         
-        if distri_config.n_device_per_batch > 1:
+        # check if pipeline has controlnet
+        if distri_config.n_device_per_batch > 1 and hasattr(pipeline, "controlnet"):
             comm_manager_controlnet = PatchParallelismCommManager(distri_config)
             pipeline.controlnet.set_comm_manager(comm_manager_controlnet)
             # Only used for creating the communication buffer

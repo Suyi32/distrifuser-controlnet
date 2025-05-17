@@ -8,6 +8,7 @@ from torch.nn import functional as F
 from distrifuser.modules.base_module import BaseModule
 from distrifuser.utils import DistriConfig
 
+from peft.tuners.lora.layer import LoraLayer
 
 class DistriAttentionPP(BaseModule):
     def __init__(self, module: Attention, distri_config: DistriConfig):
@@ -15,8 +16,8 @@ class DistriAttentionPP(BaseModule):
 
         to_k = module.to_k
         to_v = module.to_v
-        assert isinstance(to_k, nn.Linear)
-        assert isinstance(to_v, nn.Linear)
+        assert isinstance(to_k, nn.Linear) or isinstance(to_k, LoraLayer), f"{to_k}"
+        assert isinstance(to_v, nn.Linear) or isinstance(to_v, LoraLayer), f"{to_v}"
         assert (to_k.bias is None) == (to_v.bias is None)
         assert to_k.weight.shape == to_v.weight.shape
 
