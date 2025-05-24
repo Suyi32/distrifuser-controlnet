@@ -1,11 +1,12 @@
 ## AE Instruction to run Distrifusion
 
 ### Preparation
+
+cd /workspace/distrifuser-controlnet
+
 source activate pytorch
 
 conda activate distrifuser
-
-cd /home/ubuntu/distrifuser-controlnet
 
 ### Run the benchmark
 
@@ -23,7 +24,7 @@ python3 run_ae_distrifuser.py --num_controlnets 3 --num_loras 2
 
 ### Results
 
-Logfolder: ``/home/ubuntu/distrifuser-controlnet/distrifuser_benchmark_logs``
+Logfolder: ``/workspace/distrifuser-controlnet/distrifuser_benchmark_logs``
 
 Each file stores the log for one setting. The latency of one inference is recorded as ``End2End inference latency: 8.39``, where 8.39 is the end2end inference latency.
 
