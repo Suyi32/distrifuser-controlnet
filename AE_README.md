@@ -2,25 +2,32 @@
 
 ### Preparation
 
-cd /workspace/distrifuser-controlnet
+``cd /workspace/distrifuser-controlnet``
 
-source activate pytorch
+``source activate pytorch``
 
-conda activate distrifuser
+``conda activate distrifuser``
 
 ### Run the benchmark
 
-python3 run_ae_distrifuser.py --num_controlnets 0 --num_loras 0
+For the AE evaluation, you can run the following command to reproduce the figure. 
 
-python3 run_ae_distrifuser.py --num_controlnets 1 --num_loras 0
 
-python3 run_ae_distrifuser.py --num_controlnets 0 --num_loras 1
+``python3 run_ae_distrifuser.py --num_controlnets 0 --num_loras 0``
 
-python3 run_ae_distrifuser.py --num_controlnets 1 --num_loras 1
+``python3 run_ae_distrifuser.py --num_controlnets 1 --num_loras 1``
 
-python3 run_ae_distrifuser.py --num_controlnets 2 --num_loras 2
+``python3 run_ae_distrifuser.py --num_controlnets 2 --num_loras 2``
 
-python3 run_ae_distrifuser.py --num_controlnets 3 --num_loras 2
+``python3 run_ae_distrifuser.py --num_controlnets 3 --num_loras 2``
+
+Other available commands.
+
+
+``python3 run_ae_distrifuser.py --num_controlnets 1 --num_loras 0``
+
+``python3 run_ae_distrifuser.py --num_controlnets 0 --num_loras 1``
+
 
 ### Results
 
