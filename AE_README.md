@@ -4,9 +4,7 @@
 
 ``cd /workspace/distrifuser-controlnet``
 
-``source activate pytorch``
-
-``conda activate distrifuser``
+``source activate distrifuser``
 
 ### Run the benchmark
 
