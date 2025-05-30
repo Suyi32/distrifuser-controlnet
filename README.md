@@ -1,4 +1,22 @@
 # DistriFusion-with-ControlNet: distrifuser-controlnet
+This is an implementation of DistriFusion by augmenting it with ControlNets and LoRAs. 
+The execution of ControlNets is accelerated by the parallelism mechanism proposed in the original DistriFusion paper.
+This repo serves as one of the baselines used in the Katz project [(Katz Repo Link)](https://github.com/modelscope/Katz).
+
+Please cite Katz if it is helpful to your research.
+
+```bibtex
+@inproceedings{Katz2025,
+  title = {Katz: Efficient Workflow Serving for Diffusion Models with Many Adapters},
+  author = {Li, Suyi and Yang, Lingyun and Jiang, Xiaoxiao and Lu, Hanfeng and An, Dakai and Di, Zhipeng and Lu, Weiyi and Chen, Jiawei and Liu, Kan and Yu, Yinghao and Lan, Tao and Yang, Guodong and Qu, Lin and Zhang, Liping and Wang, Wei},
+  booktitle = {Proc. USENIX ATC},
+  year = {2025}
+}
+```
+
+Below is the README from the original DistriFusion project [(DistriFusion Repo Link)](https://github.com/mit-han-lab/distrifuser).
+
+
 # DistriFusion: Distributed Parallel Inference for High-Resolution Diffusion Models
 
 ### [Paper](http://arxiv.org/abs/2402.19481) | [Project](https://hanlab.mit.edu/projects/distrifusion) | [Blog](https://hanlab.mit.edu/blog/distrifusion) | [Slides](https://www.dropbox.com/scl/fi/yv98hi2kdoh27ej4jqlbp/slides.key?rlkey=3rmfxpezqt3co5x2hgqvxv09i&st=ve4z9w6t&dl=0) | [Youtube](https://www.youtube.com/watch?v=EZX7srDDmW0&list=PL80kAHvQbh-pKRxcSS6xjds7U7Yc0gDQI&index=1) | [Poster](https://www.dropbox.com/scl/fi/labhefjwi9r01e3o9eob0/poster.pdf?rlkey=rjj1jj179enln92h8kygrftmg&st=0ddego10&dl=0)
